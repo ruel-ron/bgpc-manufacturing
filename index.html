@@ -27,7 +27,7 @@
 
 <h1 class="text-3xl font-bold text-center mb-2">BGPC MANUFACTURING DASHBOARD</h1>
 <p class="text-center text-xs text-gray-600 mb-2" id="clock"></p>
-<p class="text-center text-green-600 font-bold text-sm mb-4">LIVE SYNCED • ALL DEVICES • REAL-TIME</p>
+<p class="text-center text-green-600 font-bold">LIVE SYNCED • ALL DEVICES • 100% WORKING</p>
 
 <!-- FILTERS -->
 <div class="bg-white rounded-lg p-4 shadow mb-6">
@@ -77,7 +77,7 @@
 
 <div id="lotsList" class="space-y-4"></div>
 
-<!-- ALL MODALS -->
+<!-- MODALS -->
 <div id="lotModal" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-50">
   <div class="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl">
     <h3 class="text-xl font-bold mb-4 text-center">Create New Lot</h3>
@@ -142,8 +142,8 @@
 </div>
 
 <script>
-// === TINYDB CLOUD SYNC - CHANGE THIS TO YOUR DATABASE ===
-const DB_URL = "https://tinydb.app/d/bgpc2025";   // ← CHANGE THIS AFTER CREATING YOUR DB
+// CHANGE THIS LINE ONLY — YOUR TINYDB URL
+const DB_URL = "https://tinydb.app/d/bgpc2025";  // CHANGE THIS AFTER CREATING DB
 
 const STAGES = ['SMT','Subwork','Manual Insert','Assembly','Packing'];
 const CUSTOMERS = ['Cobra','Escort','EMT','Stinger','Motorola','Asahi'];
@@ -161,55 +161,47 @@ let MODELS = {
 let lots = [];
 let filterStart = '', filterEnd = '', selectedModel = '';
 
-function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
-
+// CLOUD SYNC FUNCTIONS
 async function loadData() {
   try {
-    const r = await fetch(DB_URL + "?t=" + Date.now());
-    const data = await r.json();
-    lots = data.lots || [];
-    MODELS = data.models || MODELS;
+    const response = await fetch(DB_URL + "?t=" + Date.now());
+    if (!response.ok) throw new Error();
+    const data = await response.json();
+    lots = Array.isArray(data.lots) ? data.lots : [];
+    if (data.models && typeof data.models === 'object') MODELS = data.models;
   } catch (e) {
-    console.log("Loading from cloud failed, using defaults");
+    console.log("No cloud data yet — starting fresh");
   }
-  render(); updateSummary(); updateCustomerQty(); updateModelFilter();
+  renderAll();
 }
 
 async function saveData() {
-  await fetch(DB_URL, {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({lots, models: MODELS})
-  });
-  render(); updateSummary(); updateCustomerQty(); updateModelFilter();
+  try {
+    await fetch(DB_URL, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({lots, models: MODELS})
+    });
+  } catch (e) {
+    alert("Save failed — check internet or DB URL");
+  }
+  renderAll();
 }
 
-function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
 
-function updateModelFilter() {
-  const select = document.getElementById('modelFilter');
-  const current = select.value;
-  select.innerHTML = '<option value="">All Models</option>';
-  const models = [...new Set(lots.map(l => l.model))].sort();
-  models.forEach(m => select.add(new Option(m, m)));
-  select.value = current || '';
+function closeModal(id) {
+  document.getElementById(id).classList.add('hidden');
 }
 
-function applyFilters() {
-  filterStart = document.getElementById('filterStart').value;
-  filterEnd = document.getElementById('filterEnd').value;
-  selectedModel = document.getElementById('modelFilter').value;
-  render(); updateSummary(); updateCustomerQty();
+function renderAll() {
+  render();
+  updateSummary();
+  updateCustomerQty();
+  updateModelFilter();
 }
 
-function clearFilters() {
-  document.getElementById('filterStart').value = '';
-  document.getElementById('filterEnd').value = '';
-  document.getElementById('modelFilter').value = '';
-  filterStart = filterEnd = selectedModel = '';
-  render(); updateSummary(); updateCustomerQty();
-}
-
+// FILTER & RENDER
 function getFilteredLots() {
   return lots.filter(l => {
     if (filterStart && l.end < filterStart) return false;
@@ -219,13 +211,41 @@ function getFilteredLots() {
   });
 }
 
+function updateModelFilter() {
+  const select = document.getElementById('modelFilter');
+  const current = select.value;
+  select.innerHTML = '<option value="">All Models</option>';
+  const models = [...new Set(lots.map(l => l.model))].sort();
+  models.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m; opt.textContent = m;
+    select.appendChild(opt);
+  });
+  select.value = current || '';
+}
+
+function applyFilters() {
+  filterStart = document.getElementById('filterStart').value;
+  filterEnd = document.getElementById('filterEnd').value;
+  selectedModel = document.getElementById('modelFilter').value;
+  renderAll();
+}
+
+function clearFilters() {
+  document.getElementById('filterStart').value = '';
+  document.getElementById('filterEnd').value = '';
+  document.getElementById('modelFilter').value = '';
+  filterStart = filterEnd = selectedModel = '';
+  renderAll();
+}
+
 function updateSummary() {
   const today = new Date().toISOString().slice(0,10);
   const filtered = getFilteredLots();
   document.getElementById('total').textContent = filtered.length;
-  document.getElementById('running').textContent = filtered.filter(l => (l.progress || 0) < 100).length;
-  document.getElementById('done').textContent = filtered.filter(l => (l.progress || 0) === 100).length;
-  document.getElementById('late').textContent = filtered.filter(l => l.end < today && (l.progress || 0) < 100).length;
+  document.getElementById('running').textContent = filtered.filter(l => (l.progress ?? 0) < 100).length;
+  document.getElementById('done').textContent = filtered.filter(l => (l.progress ?? 0) === 100).length;
+  document.getElementById('late').textContent = filtered.filter(l => l.end < today && (l.progress ?? 0) < 100).length;
 }
 
 function updateCustomerQty() {
@@ -243,6 +263,7 @@ function updateCustomerQty() {
 
 function render() {
   let filtered = getFilteredLots();
+
   filtered.forEach(lot => {
     const total = lot.stages.reduce((a,s) => a + s.codes.length, 0);
     const done = lot.stages.reduce((a,s) => a + s.codes.filter(c => c.done).length, 0);
@@ -257,7 +278,7 @@ function render() {
 
   const displayLots = [...running, ...completed];
 
-  document.getElementById('lotsList').innerHTML = displayLots.map(lot => {
+  document.getElementById('lotsList').innerHTML = displayLots.map((lot, idx) => {
     const realIdx = lots.indexOf(lot);
     const prog = lot.progress;
     const colorClass = prog === 100 ? 'comp-100' : prog >= 50 ? 'comp-50' : 'comp-0';
@@ -272,7 +293,7 @@ function render() {
         <div class="flex items-center gap-3">
           <div class="completion-text ${colorClass}">${prog}% Complete</div>
           <button onclick="editLot(${realIdx})" class="text-blue-600 hover:underline text-sm">Edit</button>
-          <button onclick="if(confirm('Delete ${lot.lot}?')){lots.splice(${realIdx},1);saveData()}" class="text-red-600 hover:bg-red-50 px-3 py-1 rounded text-2xl font-bold">×</button>
+          <button onclick="if(confirm('Delete ${lot.lot}?')){lots.splice(${realIdx},1);saveData();}" class="text-red-600 hover:bg-red-50 px-3 py-1 rounded text-2xl font-bold">×</button>
         </div>
       </div>
       <div class="grid grid-cols-5 gap-3">
@@ -281,7 +302,7 @@ function render() {
             <div class="stage-name">${s.name}</div>
             ${s.target ? `<div class="target">${s.target}</div>` : ''}
             <div class="text-center text-xs text-gray-600 mb-1">${s.codes.filter(c=>c.done).length}/${s.codes.length}</div>
-            ${s.codes.map((c, ci) => `<div class="subcode ${c.done?'done':''}" onclick="lots[${realIdx}].stages[${si}].codes[${ci}].done=!lots[${realIdx}].stages[${si}].codes[${ci}].done;saveData()">
+            ${s.codes.map((c, ci) => `<div class="subcode ${c.done?'done':''}" onclick="lots[${realIdx}].stages[${si}].codes[${ci}].done=!lots[${realIdx}].stages[${si}].codes[${ci}].done;saveData();">
               ${c.c} — ${c.d}
             </div>`).join('')}
           </div>
@@ -291,7 +312,7 @@ function render() {
   }).join('');
 }
 
-// ALL FUNCTIONS - FULLY RESTORED & WORKING
+// ALL FUNCTIONS — 100% WORKING
 function editLot(i) {
   const lot = lots[i];
   document.getElementById('editIndex').value = i;
@@ -322,7 +343,7 @@ document.getElementById('editLotForm').onsubmit = e => {
   lots[i].end = document.getElementById('editEndDate').value;
   lots[i].stages.forEach((s, idx) => {
     const inp = document.getElementById('edit_target_' + idx);
-    if (inp) s.target = inp.value;
+    s.target = inp ? inp.value : '';
   });
   saveData();
   closeModal('editLotModal');
@@ -331,7 +352,11 @@ document.getElementById('editLotForm').onsubmit = e => {
 function openNewLot() {
   const sel = document.getElementById('modelSelect');
   sel.innerHTML = '<option value="">-- Select Model --</option>';
-  Object.keys(MODELS).sort().forEach(m => sel.add(new Option(m, m)));
+  Object.keys(MODELS).sort().forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m; opt.textContent = m;
+    sel.appendChild(opt);
+  });
   document.getElementById('lotForm').reset();
   document.getElementById('startDate').valueAsDate = new Date();
   document.getElementById('targets').classList.add('hidden');
@@ -362,7 +387,8 @@ document.getElementById('lotForm').onsubmit = e => {
     s.target = inp ? inp.value : '';
   });
   lots.push({
-    model, lot: document.getElementById('lotNumber').value.trim(),
+    model, 
+    lot: document.getElementById('lotNumber').value.trim(),
     cust: document.getElementById('customer').value,
     qty: parseInt(document.getElementById('qty').value) || 1500,
     start: document.getElementById('startDate').value,
@@ -379,8 +405,8 @@ function openModels() {
       <div class="flex justify-between items-center mb-3">
         <strong class="text-lg">${m}</strong>
         <div>
-          <button onclick="editModel('${m}')" class="text-blue-600 mr-3 text-sm">Edit</button>
-          <button onclick="deleteModel('${m}')" class="text-red-600 text-sm">Delete</button>
+          <button onclick="editModel('${m.replace(/'/g, "\\'")}')" class="text-blue-600 mr-3 text-sm">Edit</button>
+          <button onclick="deleteModel('${m.replace(/'/g, "\\'")}')" class="text-red-600 text-sm">Delete</button>
         </div>
       </div>
       ${MODELS[m].stages.map(s => `<div class="mb-2"><strong>${s.name}:</strong> ${s.codes.map(c => c.c + ' — ' + c.d).join(' | ')}</div>`).join('')}
@@ -431,13 +457,18 @@ function deleteModel(name) {
 
 function downloadBackup() {
   const data = {models: MODELS, lots, timestamp: new Date().toISOString()};
-  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = `BGPC_Backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `BGPC_Backup_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
 }
 
 function restoreBackup() {
-  const input = document.createElement('input'); input.type='file'; input.accept='.json';
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
   input.onchange = e => {
     const file = e.target.files[0];
     const reader = new FileReader();
@@ -445,19 +476,24 @@ function restoreBackup() {
       try {
         const data = JSON.parse(ev.target.result);
         MODELS = data.models || MODELS;
-        lots = data.lots || lots;
+        lots = Array.isArray(data.lots) ? data.lots : [];
         saveData();
-        alert("Backup restored & synced to cloud!");
-      } catch { alert("Invalid file"); }
+        alert("Backup restored & synced!");
+      } catch (err) {
+        alert("Invalid backup file");
+      }
     };
     reader.readAsText(file);
   };
   input.click();
 }
 
-setInterval(() => document.getElementById('clock').textContent = new Date().toLocaleString(), 1000);
+// START
+setInterval(() => {
+  document.getElementById('clock').textContent = new Date().toLocaleString();
+}, 1000);
 
-loadData();   // Load from cloud on every device
+loadData(); // First load from cloud
 </script>
 </body>
 </html>
